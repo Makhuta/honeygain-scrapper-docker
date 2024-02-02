@@ -20,14 +20,4 @@ To check if it is working correctly you can check [localhost:8080](http://localh
 }
 ```
 
-For showing all infos you can check [localhost:8080/help](http://localhost:8080/help)
-
-The object is structurized like this:
-
-```bash
-{
-"CATEGORY": ["FUNCTION_1", "FUNCTION_2", ...]
-}
-```
-
-And it is used as such: [localhost:8080/CATEGORY/FUNCTION_1](http://localhost:8080/infos/me)
+For showing all infos you can check [localhost:8080/docs](http://localhost:8080/docs)
