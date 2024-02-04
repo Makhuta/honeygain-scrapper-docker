@@ -1,9 +1,16 @@
 from pyHoneygain import HoneyGain
 from os import environ
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Path
 import time
+from updater import Updater
+from threading import Thread
 import uvicorn
+from typing import Dict, Any
+
+
+UPDATE_DELAY = 10
+UPDATE_TIMEOUT = 300
+
 
 if 'HG_USERNAME' not in environ:
     raise ValueError("'HG_USERNAME' is not defined.")
@@ -34,11 +41,11 @@ while(not logged_in):
 print("Succesfully logged in")
 
 if 'PROXY_IP' in environ and 'PROXY_PORT' in environ:
-    print(f'Adding proxy {PROXY_IP}:{PROXY_PORT}')
+    print(f'Adding proxy {environ['PROXY_IP']}:{environ['PROXY_PORT']}')
     if 'PROXY_USERNAME' in environ and 'PROXY_PASSWORD' in environ:
-        print(f'With credentials username:{PROXY_USERNAME} password:{"*" * len(PROXY_PASSWORD)}')
+        print(f'With credentials username:{environ['PROXY_USERNAME']} password:{"*" * len(environ['PROXY_PASSWORD'])}')
         try:
-            successed = honeygain_user.set_proxy(f'{PROXY_IP}:{PROXY_PORT}:{PROXY_USERNAME}:{PROXY_PASSWORD}')
+            successed = honeygain_user.set_proxy(f'{environ['PROXY_IP']}:{environ['PROXY_PORT']}:{environ['PROXY_USERNAME']}:{environ['PROXY_PASSWORD']}')
         except:
             successed = False
     else:
@@ -48,34 +55,20 @@ if 'PROXY_IP' in environ and 'PROXY_PORT' in environ:
             successed = False
     print(f'Adding proxy was{"" if successed else " not"} succesfull')
 
-
-def error_placeholder():
-    return {}
+myUpdater = Updater(honeygain_user)
 
 def getHoneyGainData():
-    try:
-        return {
-            "me": honeygain_user.me,
-            "devices": honeygain_user.devices,
-            "stats": honeygain_user.stats,
-            "stats_today": honeygain_user.stats_today,
-            "stats_today_jt": honeygain_user.stats_today_jt,
-            "notifications": honeygain_user.notifications,
-            "payouts": honeygain_user.payouts,
-            "balances": honeygain_user.balances
-        }
-    except:
-        print("There was an error while getting data from HoneyGain")
-        return {
-            "me": error_placeholder,
-            "devices": error_placeholder,
-            "stats": error_placeholder,
-            "stats_today": error_placeholder,
-            "stats_today_jt": error_placeholder,
-            "notifications": error_placeholder,
-            "payouts": error_placeholder,
-            "balances": error_placeholder
-        }
+    global myUpdater
+    return {
+        "me": myUpdater.get_me,
+        "devices": myUpdater.get_devices,
+        "stats": myUpdater.get_stats,
+        "stats_today": myUpdater.get_stats_today,
+        "stats_today_jt": myUpdater.get_stats_today_jt,
+        "notifications": myUpdater.get_notifications,
+        "payouts": myUpdater.get_payouts,
+        "balances": myUpdater.get_balances
+    }
 
 def openPot():
     try:
@@ -94,16 +87,34 @@ def runHoneyGainFunctions():
         "open_honeypot": openPot
     }
 
+def updating():
+    global myUpdater
+    while True:
+        myUpdater.update_me()
+        time.sleep(UPDATE_DELAY)
+        myUpdater.update_devices()
+        time.sleep(UPDATE_DELAY)
+        myUpdater.update_stats()
+        time.sleep(UPDATE_DELAY)
+        myUpdater.update_stats_today()
+        time.sleep(UPDATE_DELAY)
+        myUpdater.update_stats_today_jt()
+        time.sleep(UPDATE_DELAY)
+        myUpdater.update_notifications()
+        time.sleep(UPDATE_DELAY)
+        myUpdater.update_payouts()
+        time.sleep(UPDATE_DELAY)
+        myUpdater.update_balances()
+        time.sleep(UPDATE_TIMEOUT)
 
-app = FastAPI()
+app = FastAPI(title="HoneyGain scrapper")
 
 @app.get('/')
-def read_root():
+def read_root() -> Dict[str, Any]:
     return {"Hello": "World"}
 
-
 @app.get("/infos/{item_id}")
-async def read_info(item_id: str):
+async def read_info(item_id: str) -> Any:
     data = getHoneyGainData()
     if item_id in data:
         return data[item_id]()
@@ -112,15 +123,8 @@ async def read_info(item_id: str):
             "error": f'Item {item_id} not exist.'
         }
 
-@app.get('/help')
-def read_help():
-    return {
-        "infos": [key for key in getHoneyGainData().keys()],
-        "functions": [key for key in runHoneyGainFunctions().keys()],
-    }
-
 @app.get("/functions/{item_id}")
-async def read_function(item_id: str):
+async def read_function(item_id: str) -> Dict[str, Any]:
     functions = runHoneyGainFunctions()
     if item_id in functions:
         return functions[item_id]()
@@ -128,3 +132,8 @@ async def read_function(item_id: str):
         return {
             "error": f'Function {item_id} not exist.'
         }
+
+if __name__ == '__main__':
+    updater_thread = Thread(target=updating, daemon=True)
+    updater_thread.start()
+    uvicorn.run(app, host="0.0.0.0", port=8080)
